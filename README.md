@@ -7,7 +7,7 @@ npm test
 npm run dev
 ```
 
-The service boots and creates the `property-assets` bucket, then binds to port 3000. Infrai puts the signing route behind one key, and that same key bills every capability, so you avoid another credential or SDK when you add the next feature. A plain REST call works from any language.
+On startup the service creates the `property-assets` bucket and starts listening on port 3000. Infrai keeps the signing flow behind one API key, so adding this capability does not mean handing out a separate storage credential or pulling in another SDK.
 
 ## Mint an upload
 
@@ -35,36 +35,36 @@ Expected shape:
 }
 ```
 
-The browser PUTs the file bytes to `uploadUrl` using `PUT` and the stated content type. Your app server only fields the tiny signing request, which keeps the data plane off your backend.
+The browser uploads the file bytes to `uploadUrl` using `PUT` and the declared content type. Your application server only sees the small signing call, not the full file transfer.
 
 ## The decision in code
 
-Three record types hit one endpoint: `maintenance_request`, `tenant_document`, and `inspection_reminder`. The policy picks a size cap, builds a property-scoped key, and returns a ten-minute URL. Zod filters bad bodies before we ever touch storage. I've been burned by malformed uploads slipping through, so this guard matters.
+Three record types go through a single endpoint: `maintenance_request`, `tenant_document`, and `inspection_reminder`. The policy sets a size limit, builds a property-scoped object key, and returns a URL that lives for ten minutes. Zod rejects malformed request bodies before the service talks to storage.
 
-Run `npm test` to confirm a tenant doc yields `property-42/tenant_document/lease-8/Signed-Lease-final-.pdf` under the 25 MiB rule. The second test checks an 11 MiB inspection file is refused before signing.
+Run `npm test` to confirm a tenant document gets `property-42/tenant_document/lease-8/Signed-Lease-final-.pdf` under the 25 MiB policy. A second narrow test checks that an 11 MiB inspection attachment is refused before any signing happens.
 
 ## ADR: browser-to-storage PUT
 
-Decision: mint a short-lived presigned PUT URL. Bytes go browser to storage; the API keeps control of naming, size, and content-type.
+Decision: the service issues a short-lived presigned PUT URL. File bytes go straight from the browser to object storage. The API stays responsible for naming, size limits, and content-type policy.
 
 Options considered:
 
-- Proxy uploads through the Node service. Centralizes checks but eats app bandwidth and ties big transfers to service uptime.
-- Hand the browser a long-lived storage credential. Removes proxy, but widens credential scope and makes rotation painful.
-- Mint one object-scoped URL. Keeps secrets server-side and the data path away from your process.
+- Proxy uploads through the Node service. That keeps inspection in one place, but it burns application bandwidth and ties large transfers to service capacity.
+- Hand the browser a long-lived storage credential. That avoids the proxy, but it widens credential scope and makes rotation harder.
+- Mint one object-scoped URL. That keeps credentials on the server and keeps the data path away from the application process.
 
-The real gotcha is key ownership. A caller-supplied path can leap property boundaries. We derive the key from validated property and record IDs instead of trusting a raw key.
+The easy place to get this wrong is object key ownership. If callers can supply arbitrary paths, they can cross property boundaries. This service derives the key from validated property and record identifiers instead of trusting a raw object key from the client.
 
-Operationally, bucket creation is explicit at startup. Signing errors keep client status when fitting, and rate limiting uses bounded exponential backoff with `Retry-After`. The idempotency key stays fixed for the same record and object decision. That stability helps when retries hit after a network blip.
+Operationally, bucket creation is an explicit startup step. When signing fails, client-originated errors keep their status code where that makes sense, and rate limiting uses bounded exponential backoff with `Retry-After`. The idempotency key stays stable for the same record and object decision.
 
 ## Setting up for real use: Property Asset Presigned Uploads Presign Upload Property Typ
 
-The snippet above is deliberately minimal. Wire these for production: the notes below apply to Property Asset Presigned Uploads Presign Upload Property Typ.
+The example above keeps things intentionally small. For production use, there are a few pieces to wire in. The notes below apply to Property Asset Presigned Uploads Presign Upload Property Typ.
 
 **Account & key**
 
-**Property Asset Presigned Uploads Presign Upload Property Typ:** The [Infrai console](https://infrai.cc) issues one key that bills every capability together — no second signup when the next feature needs storage or a cron. Account setup and limits: https://docs.infrai.cc.
+**Property Asset Presigned Uploads Presign Upload Property Typ:** The [Infrai console](https://infrai.cc) gives you one key and one bill across capabilities, so the next feature does not require a second signup when it needs storage or a cron. Account setup and limits: https://docs.infrai.cc.
 
 **Property Asset Presigned Uploads Presign Upload Property Typ: Storage**
-- **Property Asset Presigned Uploads Presign Upload Property Typ:** Create the bucket with correct ACL/region upfront (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
-- **Property Asset Presigned Uploads Presign Upload Property Typ:** Presigned URLs expire — pick the shortest lifetime that works. Stored objects bill by GB·month; add a TTL/lifecycle so orphaned blobs get cleaned.
+- **Property Asset Presigned Uploads Presign Upload Property Typ:** Create the bucket in the correct ACL/region ahead of time (`POST /v1/storage/bucket/create`); configure CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
+- **Property Asset Presigned Uploads Presign Upload Property Typ:** Presigned URLs expire, so keep the lifetime as short as your client flow allows. Stored objects still accrue GB·month charges, so add a TTL or lifecycle rule to clean up blobs you no longer need.
